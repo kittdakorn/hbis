@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบบันทึกข้อมูล สพค.70</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS สำหรับระบบแผนที่ -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <style>
+        body { font-family: 'Sarabun', sans-serif; background-color: #f3f4f6; }
+        .form-section { background: white; padding: 1.5rem; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 1rem; }
+        .section-title { font-size: 1.1rem; font-weight: 600; color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 0.5rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; }
+        label { display: block; font-size: 0.875rem; color: #374151; margin-bottom: 0.25rem; font-weight: 500; }
+        .req { color: #ef4444; font-weight: bold; }
+        input, select { width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 0.25rem; outline: none; font-size: 0.875rem; }
+        input:focus, select:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
+        .readonly-input { background-color: #e5e7eb; cursor: not-allowed; font-weight: bold; color: #1f2937; }
+        .draft-notice { display: none; background-color: #dcfce7; color: #166534; padding: 0.5rem 1rem; border-radius: 0.25rem; font-size: 0.875rem; margin-bottom: 1rem; border: 1px solid #bbf7d0; }
+        .multi-hh-notice { display: none; background-color: #fef08a; color: #854d0e; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; margin-bottom: 1rem; border: 1px solid #fde047; font-weight: bold; }
+        
+        /* ปรับ z-index แผนที่ให้อยู่ใต้ Header */
+        .leaflet-container { z-index: 10 !important; font-family: 'Sarabun', sans-serif;}
+        
+        /* ตกแต่งป้ายชื่อบ้านเลขที่บนหมุด */
+        .house-number-tooltip {
+            background-color: rgba(255, 255, 255, 0.95);
+            border: 2px solid #1e40af;
+            color: #1e40af;
+            font-weight: 700;
+            font-size: 13px;
+            padding: 2px 6px;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+        .leaflet-tooltip-top:before { border-top-color: #1e40af; }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="text-gray-800 pb-2">
+
+    <header class="bg-[#1e40af] text-white p-4 shadow-md sticky top-0 z-50">
+        <div class="container mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div>
+                <h1 class="text-xl font-bold">ระบบบันทึกข้อมูลพื้นฐานของครัวเรือน พ.ศ. 2570</h1>
+            </div>
+            <div class="flex flex-wrap gap-2 items-center justify-center">
+                <div id="gpsBadge" class="bg-blue-900 border border-blue-500 px-3 py-1.5 rounded text-xs flex items-center transition shadow-inner">
+                    <i id="gpsIcon" class="fas fa-satellite-dish mr-1.5 text-yellow-400 animate-pulse"></i> 
+                    <span id="gpsText" class="font-mono">กำลังค้นหาพิกัด...</span>
+                </div>
+                <button onclick="backupData()" class="bg-gray-700 hover:bg-gray-800 border border-gray-600 px-3 py-1.5 rounded text-xs flex items-center transition">
+                    <i class="fas fa-download mr-1.5 text-blue-300"></i> สำรองไฟล์
+                </button>
+                <button onclick="document.getElementById('importFile').click()" class="bg-gray-700 hover:bg-gray-800 border border-gray-600 px-3 py-1.5 rounded text-xs flex items-center transition">
+                    <i class="fas fa-upload mr-1.5 text-yellow-300"></i> นำเข้าไฟล์
+                </button>
+                <input type="file" id="importFile" accept=".json" class="hidden" onchange="restoreData(event)">
+            </div>
+        </div>
+    </header>
+
+    <div class="container mx-auto p-4 flex flex-col xl:flex-row gap-6 mt-2">
+        
+        <!-- ฝั่งฟอร์มกรอกข้อมูล -->
+        <div class="w-full xl:w-7/12">
+            
+            <div id="draftNotice" class="draft-notice">
+                <i class="fas fa-info-circle mr-1"></i> ระบบกู้คืนข้อมูลร่างที่คุณพิมพ์ค้างไว้ล่าสุดเรียบร้อยแล้ว
+            </div>
+            <div id="multiHhNotice" class="multi-hh-notice">
+                <i class="fas fa-exclamation-triangle mr-1"></i> กำลังบันทึกบ้านที่มีหลายครัวเรือน กรุณากรอกข้อมูลครัวเรือนลำดับถัดไป
+            </div>
+
+            <form id="surveyForm">
+                
+                <!-- ตั้งค่า EA -->
+                <div class="form-section grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div><label>จังหวัด (CWT)</label><input type="text" id="cwt" value="ปทุมธานี"></div>
+                    <div><label>เขต (AREA)</label><select id="area"><option value="1">1 ในเขตเทศบาล</option><option value="2">2 นอกเขตเทศบาล</option></select></div>
+                    <div><label>รหัส/ชื่อตำบล</label><input type="text" id="subdistrict"></div>
+                    <div><label>EA</label><input type="text" id="ea" required></div>
+                </div>
+
+                <!-- 1. ข้อมูลพื้นฐานของครัวเรือน (อาคาร) -->
+                <div class="form-section">
+                    <h3 class="section-title">
+                        <span><i class="fas fa-home mr-2"></i>ข้อมูลพื้นฐานของครัวเรือน (อาคาร/สิ่งปลูกสร้าง)</span>
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div><label>A1 ลำดับที่บ้าน/อาคาร</label><input type="number" id="a1" class="bg-blue-50 border-blue-300 font-bold"></div>
+                        <div><label>A3 บ้านเลขที่ <span class="req">*</span></label><input type="text" id="a3" required class="bg-blue-50 border-blue-300 font-bold"></div>
+                        <div><label>A2 ชื่อถนน <span class="req">*</span></label><input type="text" id="a2" required></div>
+                        <div><label>A2_1 ชื่อตรอก/ซอย</label><input type="text" id="a2_1"></div>
+                        <div class="md:col-span-2"><label>A3_1 ชื่อหมู่บ้านจัดสรร/สถานประกอบการ</label><input type="text" id="a3_1"></div>
+                        
+                        <div class="md:col-span-2">
+                            <label>A3_2 ประเภทอาคาร <span class="req">*</span></label>
+                            <select id="a3_2" required>
+                                <option value="">-- เลือกประเภทอาคาร --</option>
+                                <optgroup label="1. อาคารเพื่อการอยู่อาศัย">
+                                    <option value="101 บ้านเดี่ยว">101 บ้านเดี่ยว</option>
+                                    <option value="102 บ้านแฝด">102 บ้านแฝด</option>
+                                    <option value="103 ทาวน์เฮ้าส์/ทาวน์โฮม">103 บ้านแถว (ทาวน์เฮ้าส์/ทาวน์โฮม)</option>
+                                    <option value="104 ห้องแถว/เรือนแถว">104 ห้องแถว/เรือนแถว</option>
+                                    <option value="105 ตึกแถว">105 ตึกแถว</option>
+                                    <option value="106 อาคารอยู่อาศัยรวม/คอนโด">106 อาคารอยู่อาศัยรวม/คอนโด</option>
+                                    <option value="107 เรือ/แพ/รถ">107 เรือ/แพ/รถ</option>
+                                    <option value="108 เพิงกึ่งถาวร">108 เพิงกึ่งถาวร</option>
+                                    <option value="199 อาคารเพื่ออยู่อาศัยอื่นๆ">199 อาคารเพื่ออยู่อาศัยอื่นๆ</option>
+                                </optgroup>
+                                <optgroup label="2. อาคารที่ไม่ใช่เพื่อการอยู่อาศัย">
+                                    <option value="201 โรงแรม/รีสอร์ท">201 โรงแรม/รีสอร์ท/เกสต์เฮ้าส์</option>
+                                    <option value="202 ภัตตาคาร/ร้านอาหาร">202 ภัตตาคาร/ร้านอาหาร/โรงอาหาร</option>
+                                    <option value="203 สถานที่ราชการ">203 สถานที่ราชการ/รัฐวิสาหกิจ</option>
+                                    <option value="204 อาคารสำนักงานเอกชน">204 อาคารสำนักงานเอกชน</option>
+                                    <option value="205 ห้างสรรพสินค้า">205 ห้างสรรพสินค้า</option>
+                                    <option value="206 ร้านค้า/ตลาด">206 ร้านค้าส่งค้าปลีก/ตลาด</option>
+                                    <option value="207 โรงงาน/โรงสี">207 โรงงาน/โรงสี</option>
+                                    <option value="208 คลังสินค้า/โกดัง">208 คลังสินค้า/โกดัง</option>
+                                    <option value="209 สถานศึกษา">209 สถานศึกษา/โรงเรียน</option>
+                                    <option value="210 สถานพยาบาล">210 สถานพยาบาล/โรงพยาบาล</option>
+                                    <option value="211 ศาสนสถาน">211 ศาสนสถาน/วัด/มัสยิด/โบสถ์</option>
+                                    <option value="212 อาคารนันทนาการ">212 อาคารเพื่อการนันทนาการ</option>
+                                    <option value="213 เรือนจำ">213 เรือนจำ/ทัณฑสถาน</option>
+                                    <option value="214 กรมทหาร/ตำรวจ">214 กรมกองทหารหรือตำรวจ</option>
+                                    <option value="299 อาคารไม่ใช่เพื่ออยู่อาศัยอื่นๆ">299 อาคารที่ไม่ใช่เพื่ออยู่อาศัยอื่นๆ</option>
+                                </optgroup>
+                            </select>
+                        </div>
+
+                        <div class="md:col-span-2">
+                            <label>A4 การอยู่อาศัยเป็นประจำ <span class="req">*</span></label>
+                            <select id="a4" required>
+                                <option value="">-- เลือกสถานะการอยู่อาศัย --</option>
+                                <option value="1. มีคนอยู่อาศัยเป็นประจำ">1. มีคนอยู่อาศัยเป็นประจำ</option>
+                                <option value="2. มีคนอยู่ แต่ไม่ได้อยู่ประจำ">2. มีคนอยู่อาศัย แต่ไม่ได้อยู่ประจำ</option>
+                                <option value="3.1 บ้านว่าง">3.1 ไม่มีคนอยู่อาศัย: บ้านว่าง</option>
+                                <option value="3.2 บ้านร้าง">3.2 ไม่มีคนอยู่อาศัย: บ้านร้าง</option>
+                                <option value="3.3 อาคารไม่ได้ใช้เป็นที่อยู่อาศัย">3.3 ไม่มีคนอยู่อาศัย: อาคารที่ไม่ได้ใช้เป็นที่อยู่อาศัย</option>
+                                <option value="3.4 อาคารอยู่อาศัยแต่ใช้ประโยชน์อื่น">3.4 ไม่มีคนอยู่อาศัย: ใช้ประโยชน์อื่น เช่น เก็บของ</option>
+                            </select>
+                        </div>
+                        
+                        <div><label>A6_1 จำนวนครัวเรือนทั้งสิ้นในอาคาร <span class="req">*</span></label><input type="number" id="a6_1" required min="1" value="1" class="border-yellow-400 bg-yellow-50 focus:ring-yellow-500 font-bold"></div>
+                        <div><label>A25 หมายเหตุอาคาร/สิ่งปลูกสร้าง</label><input type="text" id="a25"></div>
+                    </div>
+                </div>
+
+                <!-- 2. ข้อมูลครัวเรือน -->
+                <div class="form-section">
+                    <h3 class="section-title">
+                        <span><i class="fas fa-users mr-2"></i>ข้อมูลครัวเรือน</span>
+                    </h3>
+                    
+                    <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
+                        <div class="col-span-2 md:col-span-1">
+                            <label class="text-blue-700">A7 ลำดับครัวเรือน <span class="req">*</span></label>
+                            <input type="number" id="a7" required min="1" value="1" class="bg-blue-100 border-blue-400 font-bold text-center text-lg text-blue-900" readonly>
+                        </div>
+                        <div class="col-span-1 md:col-span-1">
+                            <label>ห้องที่</label>
+                            <input type="text" id="room_no" placeholder="เว้นว่าง=0">
+                        </div>
+                        <div class="col-span-1 md:col-span-1">
+                            <label>ชั้นที่</label>
+                            <input type="text" id="floor_no" placeholder="เว้นว่าง=0">
+                        </div>
+                        <div class="col-span-2 md:col-span-3">
+                            <label>A9 ประเภทครัวเรือน <span class="req">*</span></label>
+                            <select id="a9" required>
+                                <option value="1. ครัวเรือนส่วนบุคคล">1. ครัวเรือนส่วนบุคคล</option>
+                                <option value="2. ครัวเรือนกลุ่มบุคคลประเภทคนงาน">2. ครัวเรือนกลุ่มบุคคลประเภทครัวเรือนคนงาน</option>
+                                <option value="3. ครัวเรือนกลุ่มบุคคลประเภทสถาบัน">3. ครัวเรือนกลุ่มบุคคลประเภทครัวเรือนสถาบัน</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 col-span-2 md:col-span-6">
+                            <div class="col-span-1"><label>A10_P1 คำนำหน้า <span class="req">*</span></label><select id="a10_p1" required><option value="นาย">นาย</option><option value="นาง">นาง</option><option value="น.ส.">น.ส.</option><option value="ด.ช.">ด.ช.</option><option value="ด.ญ.">ด.ญ.</option><option value="อื่นๆ">อื่นๆ</option></select></div>
+                            <div class="col-span-1"><label>A10_1 ชื่อตัว <span class="req">*</span></label><input type="text" id="a10_1" required></div>
+                            <div class="col-span-1"><label>A10_2 ชื่อสกุล <span class="req">*</span></label><input type="text" id="a10_2" required></div>
+                        </div>
+
+                        <div class="col-span-2 md:col-span-6">
+                            <label>AH สถานะการอยู่อาศัยของครัวเรือน <span class="req">*</span></label>
+                            <select id="ah" required>
+                                <option value="1. เป็นของครัวเรือนเอง/เช่าซื้อ">1. เป็นของครัวเรือนเอง/เช่าซื้อ</option>
+                                <option value="2. เช่าจากผู้อื่น">2. เช่าจากผู้อื่น</option>
+                                <option value="3. ไม่ใช่ของครัวเรือน แต่อยู่ฟรี">3. ไม่ใช่ของครัวเรือน แต่อยู่โดยไม่มีค่าเช่า</option>
+                                <option value="4. ไม่ทราบ">4. ไม่ทราบ</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <h4 class="font-bold text-gray-700 mb-2 text-sm border-b pb-1">จำนวนสมาชิก (หากเว้นว่าง ระบบจะเติม 0 ให้อัตโนมัติ)</h4>
+                    <div class="grid grid-cols-3 md:grid-cols-6 gap-2 mb-4">
+                        <div class="col-span-2"><label>A12 ชาย <span class="req">*</span></label><input type="number" id="a12" min="0" oninput="calcA11()"></div>
+                        <div class="col-span-2"><label>A13 หญิง <span class="req">*</span></label><input type="number" id="a13" min="0" oninput="calcA11()"></div>
+                        <div class="col-span-2"><label>A11 รวม (อัตโนมัติ)</label><input type="number" id="a11" class="readonly-input" readonly></div>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                        <div><label>A14 อายุ < 1 ปี <span class="req">*</span></label><input type="number" id="a14" min="0"></div>
+                        <div><label>A15 อายุ 1-3 ปี <span class="req">*</span></label><input type="number" id="a15" min="0"></div>
+                        <div><label>A16 อายุ 4 ปี <span class="req">*</span></label><input type="number" id="a16" min="0"></div>
+                        <div><label>A27 หญิงตั้งครรภ์ <span class="req">*</span></label><input type="number" id="a27" min="0"></div>
+                    </div>
+
+                    <h4 class="font-bold text-gray-700 mb-2 text-sm border-b pb-1 mt-4">เศรษฐกิจและสุขภาพ</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <div><label>A19 อาชีพที่มีรายได้สูงสุด <span class="req">*</span></label><input type="text" id="a19" required></div>
+                        <div>
+                            <label>A20 สถานภาพการทำงาน <span class="req">*</span></label>
+                            <select id="a20" required>
+                                <option value="1. นายจ้าง">1. นายจ้าง</option>
+                                <option value="2. ผู้ทำงานส่วนตัว">2. ผู้ทำงานส่วนตัว</option>
+                                <option value="3. ลูกจ้างรัฐบาล">3. ลูกจ้างรัฐบาล</option>
+                                <option value="4. ลูกจ้างรัฐวิสาหกิจ">4. ลูกจ้างรัฐวิสาหกิจ</option>
+                                <option value="5. ลูกจ้างเอกชน">5. ลูกจ้างเอกชน</option>
+                                <option value="6. การรวมกลุ่ม">6. การรวมกลุ่ม</option>
+                                <option value="7. ไม่ได้ทำงานหารายได้">7. ไม่ได้ทำงานหารายได้</option>
+                                <option value="8. ไม่ทราบ">8. ไม่ทราบ</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-2"><label>A18 ประเภทอุตสาหกรรม (รายได้สูงสุด)</label><input type="text" id="a18" placeholder="สามารถปล่อยว่างได้"></div>
+                        
+                        <div><label>A28 สมาชิกมีความบกพร่อง <span class="req">*</span></label><input type="number" id="a28" min="0" oninput="calcA30()"></div>
+                        <div><label>A29 สมาชิกมีปัญหาสุขภาพอื่นๆ <span class="req">*</span></label><input type="number" id="a29" min="0" oninput="calcA30()"></div>
+                        <div class="md:col-span-2"><label>A30 รวมผู้มีปัญหาสุขภาพ (อัตโนมัติ)</label><input type="number" id="a30" class="readonly-input" readonly></div>
+                    </div>
+                </div>
+
+                <!-- 3. ข้อมูลผู้ตอบสัมภาษณ์ -->
+                <div class="form-section bg-blue-50">
+                    <h3 class="section-title">
+                        <span><i class="fas fa-user-edit mr-2"></i>ข้อมูลผู้ตอบสัมภาษณ์</span>
+                        <button type="button" onclick="copyHeadToRespondent()" class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-full font-medium transition flex items-center shadow-sm">
+                            <i class="fas fa-copy mr-1.5"></i> คัดลอกชื่อหัวหน้าครัวเรือน
+                        </button>
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div><label>A22_P1 คำนำหน้า <span class="req">*</span></label><select id="a22_p1" required><option value="นาย">นาย</option><option value="นาง">นาง</option><option value="น.ส.">น.ส.</option><option value="ด.ช.">ด.ช.</option><option value="ด.ญ.">ด.ญ.</option><option value="อื่นๆ">อื่นๆ</option></select></div>
+                        <div><label>A22_1 ชื่อตัว <span class="req">*</span></label><input type="text" id="a22_1" required></div>
+                        <div><label>A22_2 ชื่อสกุล <span class="req">*</span></label><input type="text" id="a22_2" required></div>
+                        
+                        <div>
+                            <label>A23 เป็นสมาชิกในครัวเรือน? <span class="req">*</span></label>
+                            <select id="a23" required><option value="1. เป็น">1. เป็น</option><option value="2. ไม่เป็น">2. ไม่เป็น</option></select>
+                        </div>
+                        <div class="md:col-span-2"><label>A24 หมายเหตุครัวเรือน</label><input type="text" id="a24"></div>
+                    </div>
+
+                    <h4 class="font-bold text-gray-700 mb-2 text-sm border-b border-blue-200 pb-1">ช่องทางติดต่อ</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label>A32_1 เบอร์โทรศัพท์</label>
+                            <input type="tel" id="a32_1" maxlength="10" placeholder="สูงสุด 10 หลัก" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
+                        </div>
+                        <div><label>A32_2 Line ID</label><input type="text" id="a32_2"></div>
+                        <div><label>A32_3 E-mail</label><input type="email" id="a32_3"></div>
+                        <div><label>A32_4 อื่นๆ</label><input type="text" id="a32_4"></div>
+                    </div>
+                </div>
+
+                <div class="flex flex-wrap justify-end gap-3 mt-6">
+                    <button type="button" id="cancelEditBtn" onclick="cancelEdit()" style="display: none;" class="px-6 py-2 bg-gray-500 text-white font-medium rounded shadow hover:bg-gray-600 transition">
+                        <i class="fas fa-times mr-1"></i> ยกเลิกการแก้ไข
+                    </button>
+                    <button type="button" onclick="clearFullForm()" class="px-6 py-2 border border-gray-300 text-gray-700 font-medium rounded hover:bg-gray-100 transition">
+                        ล้างฟอร์มทั้งหมด
+                    </button>
+                    <button type="submit" id="submitBtn" class="px-8 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 transition">
+                        <i class="fas fa-save mr-1"></i> บันทึกข้อมูล
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- ฝั่งตารางแสดงผลและแผนที่ -->
+        <div class="w-full xl:w-5/12 flex flex-col gap-4">
+            
+            <!-- ตารางข้อมูล -->
+            <div class="bg-white rounded-lg shadow border border-gray-200 flex flex-col sticky top-20" style="max-height: 50vh;">
+                <div class="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-lg">
+                    <div class="flex items-center">
+                        <i class="fas fa-list-ul mr-2 text-blue-700"></i>
+                        <h2 class="font-bold text-sm sm:text-base">รายการที่บันทึก</h2>
+                        <span id="recordCount" class="ml-2 bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full">0</span>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="exportToExcel()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded text-sm shadow flex items-center transition">
+                            <i class="fas fa-file-excel mr-1"></i> ส่งออก Excel
+                        </button>
+                        <button onclick="clearAllData()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-1.5 rounded text-sm shadow flex items-center transition" title="ลบข้อมูลในตารางทั้งหมดเพื่อขึ้น EA ใหม่">
+                            <i class="fas fa-sync-alt mr-1"></i> เริ่ม EA ใหม่
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="overflow-y-auto flex-grow p-0">
+                    <table class="w-full text-sm text-left whitespace-nowrap">
+                        <thead class="text-xs text-gray-600 bg-gray-100 border-b uppercase sticky top-0 z-10">
+                            <tr>
+                                <th class="px-3 py-2 text-center">A1</th>
+                                <th class="px-3 py-2">บ้านเลขที่ (A7)</th>
+                                <th class="px-3 py-2">หัวหน้าครัวเรือน</th>
+                                <th class="px-2 py-2 text-center">จัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody" class="divide-y divide-gray-100">
+                            <!-- Data inject -->
+                        </tbody>
+                    </table>
+                    <div id="emptyState" class="text-center py-10 text-gray-400">
+                        <p>ยังไม่มีข้อมูล</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- แผนที่ Google Satellite -->
+            <div class="bg-white rounded-lg shadow border border-gray-200">
+                <div class="p-3 border-b bg-gray-50 rounded-t-lg flex justify-between items-center">
+                    <h2 class="font-bold text-sm sm:text-base text-gray-700">
+                        <i class="fas fa-map-marked-alt text-blue-600 mr-2"></i>แผนที่พิกัดครัวเรือน (ลากหมุดเพื่อแก้ไขตำแหน่งได้)
+                    </h2>
+                </div>
+                <div id="map" class="w-full h-80 sm:h-96 rounded-b-lg border-t border-gray-200"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ส่วนท้าย Developed by -->
+    <div class="container mx-auto text-center text-gray-400 text-sm mt-8 mb-4">
+        Developed by Kittdakorn
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'spk70_data_v3_excel';
+        const DRAFT_KEY = 'spk70_form_draft';
+        
+        let currentLat = '';
+        let currentLng = '';
+        let watchId = null;
+        let editingId = null;
+
+        // ตัวแปรสำหรับแผนที่
+        let map;
+        let markersGroup;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap(); 
+            loadData();
+            loadDraft();
+            checkMultiHouseholdState();
+            initGPS();
+            
+            const formInputs = document.querySelectorAll('#surveyForm input, #surveyForm select');
+            formInputs.forEach(input => {
+                input.addEventListener('input', saveDraft);
+                input.addEventListener('change', saveDraft);
+            });
+        });
+
+        function initMap() {
+            // ตั้งค่าเริ่มต้น (ปทุมธานี)
+            map = L.map('map').setView([14.0208, 100.5250], 11);
+            
+            // โหลดชั้นข้อมูล Google Satellite (maxZoom 21 เพื่อให้ซูมลึกเห็นหลังคาชัดๆ)
+            L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+                maxZoom: 21,
+                attribution: '© Google'
+            }).addTo(map);
+
+            markersGroup = L.layerGroup().addTo(map);
+            
+            setTimeout(() => { map.invalidateSize(); }, 500);
+        }
+
+        function updateMapMarkers() {
+            if(!map) return;
+            markersGroup.clearLayers();
+            const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            let bounds = [];
+
+            records.forEach(rec => {
+                if(rec.lat && rec.lng && !isNaN(rec.lat) && !isNaN(rec.lng)) {
+                    // เปิด Draggable ให้ผู้ใช้ลากหมุดย้ายตำแหน่งได้
+                    const marker = L.marker([parseFloat(rec.lat), parseFloat(rec.lng)], { draggable: true });
+                    
+                    // ป๊อปอัปเมื่อคลิก
+                    marker.bindPopup(`
+                        <div class="text-sm">
+                            <b class="text-blue-700">บ้านเลขที่:</b> ${rec.a3}<br>
+                            <b>หัวหน้า:</b> ${rec.a10_p1}${rec.a10_1} ${rec.a10_2}<br>
+                            <span class="text-gray-500">ครัวเรือนที่: ${rec.a7 || 1}</span>
+                        </div>
+                    `);
+
+                    // เพิ่มป้ายระบุบ้านเลขที่ (Tooltip ถาวร) ให้ลอยบนหมุด
+                    marker.bindTooltip(rec.a3, {
+                        permanent: true, 
+                        direction: 'top',
+                        offset: [0, -35], // ดันขึ้นไปให้อยู่เหนือหมุด
+                        className: 'house-number-tooltip'
+                    });
+
+                    // เมื่อผู้ใช้ลากหมุดไปวางที่ใหม่ ให้บันทึกพิกัดใหม่ลง Local Storage ทันที
+                    marker.on('dragend', function(e) {
+                        const newPos = marker.getLatLng();
+                        updateRecordLocation(rec.id, newPos.lat.toFixed(5), newPos.lng.toFixed(5));
+                    });
+
+                    markersGroup.addLayer(marker);
+                    bounds.push([parseFloat(rec.lat), parseFloat(rec.lng)]);
+                }
+            });
+
+            if(bounds.length > 0) {
+                // ซูมไปยังกลุ่มหมุด (maxZoom 19 เพื่อให้เห็นหลังคากว้างๆ ก่อน)
+                map.fitBounds(bounds, {padding: [30, 30], maxZoom: 19});
+            }
+        }
+
+        // ฟังก์ชันอัปเดตพิกัดใหม่เมื่อมีการลากหมุด
+        function updateRecordLocation(id, newLat, newLng) {
+            let records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            const index = records.findIndex(r => r.id === id);
+            if (index > -1) {
+                records[index].lat = newLat;
+                records[index].lng = newLng;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+            }
+        }
+
+        function initGPS() {
+            const gpsIcon = document.getElementById('gpsIcon');
+            const gpsText = document.getElementById('gpsText');
+            
+            if ("geolocation" in navigator) {
+                watchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        currentLat = position.coords.latitude.toFixed(5);
+                        currentLng = position.coords.longitude.toFixed(5);
+                        gpsIcon.className = "fas fa-map-marker-alt mr-1.5 text-green-400";
+                        gpsText.innerText = `${currentLat}, ${currentLng}`;
+                    },
+                    (error) => {
+                        console.warn("GPS Error: ", error);
+                        gpsIcon.className = "fas fa-exclamation-triangle mr-1.5 text-red-400";
+                        gpsText.innerText = "หาพิกัดไม่สำเร็จ";
+                    },
+                    { enableHighAccuracy: true, maximumAge: 5000, timeout: 5000 }
+                );
+            } else {
+                gpsIcon.className = "fas fa-times-circle mr-1.5 text-red-400";
+                gpsText.innerText = "ไม่รองรับ GPS";
+            }
+        }
+
+        function calcA11() {
+            const mVal = document.getElementById('a12').value;
+            const fVal = document.getElementById('a13').value;
+            if (mVal === '' && fVal === '') {
+                document.getElementById('a11').value = '';
+            } else {
+                const m = parseInt(mVal) || 0;
+                const f = parseInt(fVal) || 0;
+                document.getElementById('a11').value = m + f;
+            }
+        }
+
+        function calcA30() {
+            const val1 = document.getElementById('a28').value;
+            const val2 = document.getElementById('a29').value;
+            if (val1 === '' && val2 === '') {
+                document.getElementById('a30').value = '';
+            } else {
+                const m = parseInt(val1) || 0;
+                const f = parseInt(val2) || 0;
+                document.getElementById('a30').value = m + f;
+            }
+        }
+
+        function copyHeadToRespondent() {
+            const hPrefix = document.getElementById('a10_p1').value;
+            const hName1 = document.getElementById('a10_1').value;
+            const hName2 = document.getElementById('a10_2').value;
+
+            if (!hName1) {
+                alert("กรุณากรอกชื่อหัวหน้าครัวเรือน (A10_1) ก่อนทำการคัดลอก");
+                return;
+            }
+
+            document.getElementById('a22_p1').value = hPrefix;
+            document.getElementById('a22_1').value = hName1;
+            document.getElementById('a22_2').value = hName2;
+            document.getElementById('a23').value = "1. เป็น";
+            saveDraft();
+        }
+
+        function saveDraft() {
+            if (editingId) return;
+            const draft = {};
+            const formInputs = document.querySelectorAll('#surveyForm input, #surveyForm select');
+            formInputs.forEach(input => {
+                if (input.id) draft[input.id] = input.value;
+            });
+            localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+            checkMultiHouseholdState();
+        }
+
+        function loadDraft() {
+            const draft = JSON.parse(localStorage.getItem(DRAFT_KEY));
+            if (draft && Object.keys(draft).length > 0) {
+                let hasData = false;
+                for (let key in draft) {
+                    const el = document.getElementById(key);
+                    if (el) {
+                        el.value = draft[key];
+                        if (draft[key]) hasData = true;
+                    }
+                }
+                if (hasData) {
+                    document.getElementById('draftNotice').style.display = 'block';
+                    setTimeout(() => { document.getElementById('draftNotice').style.display = 'none'; }, 5000);
+                }
+            }
+        }
+
+        function checkMultiHouseholdState() {
+            if (editingId) {
+                document.getElementById('multiHhNotice').style.display = 'none';
+                return;
+            }
+            const a6_1 = parseInt(document.getElementById('a6_1').value) || 1;
+            const currentA7 = parseInt(document.getElementById('a7').value) || 1;
+            const notice = document.getElementById('multiHhNotice');
+            
+            if (a6_1 > 1 && currentA7 <= a6_1 && currentA7 > 1) {
+                notice.style.display = 'block';
+                notice.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> กำลังบันทึกบ้านเลขที่เดิม ครัวเรือนที่ ${currentA7} จากทั้งหมด ${a6_1} ครัวเรือน`;
+            } else {
+                notice.style.display = 'none';
+            }
+        }
+
+        function editRecord(id) {
+            const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            const rec = records.find(r => r.id === id);
+            if (!rec) return;
+
+            editingId = id;
+            
+            for (let key in rec) {
+                const el = document.getElementById(key);
+                if (el) el.value = rec[key];
+            }
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.innerHTML = '<i class="fas fa-edit mr-1"></i> อัปเดตข้อมูล';
+            submitBtn.classList.replace('bg-blue-600', 'bg-yellow-500');
+            submitBtn.classList.replace('hover:bg-blue-700', 'hover:bg-yellow-600');
+            
+            document.getElementById('cancelEditBtn').style.display = 'inline-block';
+            document.getElementById('multiHhNotice').style.display = 'none';
+            localStorage.removeItem(DRAFT_KEY);
+            
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function cancelEdit() {
+            editingId = null;
+            document.getElementById('cancelEditBtn').style.display = 'none';
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.innerHTML = '<i class="fas fa-save mr-1"></i> บันทึกข้อมูล';
+            submitBtn.classList.replace('bg-yellow-500', 'bg-blue-600');
+            submitBtn.classList.replace('hover:bg-yellow-600', 'hover:bg-blue-700');
+            
+            clearFullForm(true); 
+        }
+
+        function clearFullForm(skipConfirm = false) {
+            if(!skipConfirm && !editingId && !confirm('ต้องการล้างข้อมูลในฟอร์มทั้งหมดใช่หรือไม่?')) return;
+            
+            document.getElementById('surveyForm').reset();
+            document.getElementById('cwt').value = 'ปทุมธานี';
+            document.getElementById('a7').value = 1;
+            
+            const numericFieldsToReset = ['a11', 'a12', 'a13', 'a14', 'a15', 'a16', 'a27', 'a28', 'a29', 'a30', 'room_no', 'floor_no'];
+            numericFieldsToReset.forEach(id => { if(document.getElementById(id)) document.getElementById(id).value = ''; });
+            
+            localStorage.removeItem(DRAFT_KEY);
+            checkMultiHouseholdState();
+        }
+
+        function clearAllData() {
+            const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            if (records.length === 0) {
+                alert('ยังไม่มีข้อมูลในตารางให้ลบครับ');
+                return;
+            }
+
+            if(confirm('⚠️ คำเตือน: คุณกด "ส่งออก Excel" เพื่อสำรองข้อมูล EA นี้เรียบร้อยแล้วใช่หรือไม่?\n\nการกระทำนี้จะ **ลบข้อมูลในตารางออกทั้งหมด** เพื่อเริ่มต้นเขตแจงนับ (EA) ใหม่\n\nต้องการดำเนินการต่อหรือไม่?')) {
+                if(confirm('ยืนยันการลบข้อมูลทั้งหมดอย่างถาวร? (ข้อมูลจะไม่สามารถกู้คืนได้หากไม่ได้ส่งออกไฟล์ไว้)')) {
+                    localStorage.removeItem(STORAGE_KEY);
+                    localStorage.removeItem(DRAFT_KEY);
+                    
+                    if (editingId) cancelEdit();
+                    else clearFullForm(true);
+                    
+                    loadData();
+                    alert('ล้างข้อมูลสำเร็จ! ระบบพร้อมสำหรับการบันทึกเขตแจงนับ (EA) ใหม่แล้วครับ');
+                }
+            }
+        }
+
+        document.getElementById('surveyForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            let records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+            const data = {
+                id: editingId ? editingId : Date.now().toString(),
+                lat: currentLat, 
+                lng: currentLng,
+                cwt: document.getElementById('cwt').value,
+                area: document.getElementById('area').value,
+                subdistrict: document.getElementById('subdistrict').value,
+                ea: document.getElementById('ea').value,
+                a1: document.getElementById('a1').value,
+                a2: document.getElementById('a2').value,
+                a2_1: document.getElementById('a2_1').value,
+                a3: document.getElementById('a3').value,
+                a3_1: document.getElementById('a3_1').value,
+                a3_2: document.getElementById('a3_2').value,
+                a4: document.getElementById('a4').value,
+                a6_1: document.getElementById('a6_1').value,
+                a25: document.getElementById('a25').value,
+                a7: document.getElementById('a7').value,
+                room_no: document.getElementById('room_no').value || "0",
+                floor_no: document.getElementById('floor_no').value || "0",
+                a9: document.getElementById('a9').value,
+                a10_p1: document.getElementById('a10_p1').value,
+                a10_1: document.getElementById('a10_1').value,
+                a10_2: document.getElementById('a10_2').value,
+                ah: document.getElementById('ah').value,
+                
+                a12: document.getElementById('a12').value || "0",
+                a13: document.getElementById('a13').value || "0",
+                a11: document.getElementById('a11').value || "0",
+                a14: document.getElementById('a14').value || "0",
+                a15: document.getElementById('a15').value || "0",
+                a16: document.getElementById('a16').value || "0",
+                a27: document.getElementById('a27').value || "0",
+                a28: document.getElementById('a28').value || "0",
+                a29: document.getElementById('a29').value || "0",
+                a30: document.getElementById('a30').value || "0",
+                
+                a19: document.getElementById('a19').value,
+                a20: document.getElementById('a20').value,
+                a18: document.getElementById('a18').value,
+                a22_p1: document.getElementById('a22_p1').value,
+                a22_1: document.getElementById('a22_1').value,
+                a22_2: document.getElementById('a22_2').value,
+                a23: document.getElementById('a23').value,
+                a24: document.getElementById('a24').value,
+                a32_1: document.getElementById('a32_1').value,
+                a32_2: document.getElementById('a32_2').value,
+                a32_3: document.getElementById('a32_3').value,
+                a32_4: document.getElementById('a32_4').value,
+                timestamp: new Date().toLocaleString('th-TH')
+            };
+
+            if (editingId) {
+                const oldIndex = records.findIndex(r => r.id === editingId);
+                if (oldIndex > -1) {
+                    data.lat = records[oldIndex].lat;
+                    data.lng = records[oldIndex].lng;
+                    records[oldIndex] = data;
+                }
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+                alert('อัปเดตข้อมูลสำเร็จ!');
+                cancelEdit();
+                loadData();
+                return;
+            }
+
+            records.push(data);
+            records.sort((a, b) => parseInt(a.a1 || 0) - parseInt(b.a1 || 0));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+
+            const a6_1 = parseInt(document.getElementById('a6_1').value) || 1;
+            const currentA7 = parseInt(document.getElementById('a7').value) || 1;
+            const householdFieldsToClear = ['room_no', 'floor_no', 'a10_1', 'a10_2', 'a19', 'a18', 'a22_1', 'a22_2', 'a24', 'a32_1', 'a32_2', 'a32_3', 'a32_4'];
+            const numericFieldsToReset = ['a11', 'a12', 'a13', 'a14', 'a15', 'a16', 'a27', 'a28', 'a29', 'a30'];
+
+            if (currentA7 < a6_1) {
+                document.getElementById('a7').value = currentA7 + 1;
+                householdFieldsToClear.forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = ''; });
+                numericFieldsToReset.forEach(id => { if (document.getElementById(id)) document.getElementById(id).value = ''; });
+                
+                alert(`บันทึกครัวเรือนที่ ${currentA7} สำเร็จ!\n\nกรุณากรอกข้อมูล "ครัวเรือนที่ ${currentA7 + 1}" (จากทั้งหมด ${a6_1} ครัวเรือน)`);
+                document.getElementById('a10_1').focus();
+            } else {
+                document.getElementById('a7').value = 1;
+                document.getElementById('a1').value = (parseInt(data.a1) || 0) + 1;
+                
+                const buildingFieldsToClear = ['a3', 'a25']; 
+                buildingFieldsToClear.concat(householdFieldsToClear).forEach(id => { 
+                    if (document.getElementById(id)) document.getElementById(id).value = ''; 
+                });
+                numericFieldsToReset.forEach(id => { 
+                    if (document.getElementById(id)) document.getElementById(id).value = ''; 
+                });
+                document.getElementById('a6_1').value = 1;
+                document.getElementById('a3').focus();
+            }
+            
+            saveDraft();
+            loadData();
+        });
+
+        function loadData() {
+            const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            const tbody = document.getElementById('dataTableBody');
+            const emptyState = document.getElementById('emptyState');
+            
+            tbody.innerHTML = '';
+            document.getElementById('recordCount').innerText = records.length;
+
+            if (records.length === 0) {
+                emptyState.style.display = 'block';
+            } else {
+                emptyState.style.display = 'none';
+                records.forEach(rec => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-blue-50';
+                    tr.innerHTML = `
+                        <td class="px-3 py-2 text-center bg-gray-50 border-r">${rec.a1 || '-'}</td>
+                        <td class="px-3 py-2 font-medium">${rec.a3} <span class="text-xs text-blue-600 bg-blue-100 px-1.5 py-0.5 rounded ml-1">ค. ${rec.a7 || 1}</span></td>
+                        <td class="px-3 py-2 truncate max-w-[150px]">${rec.a10_p1}${rec.a10_1} ${rec.a10_2}</td>
+                        <td class="px-2 py-2 text-center whitespace-nowrap">
+                            <button onclick="editRecord('${rec.id}')" class="text-yellow-500 hover:bg-yellow-100 p-1.5 rounded mr-1" title="แก้ไขข้อมูล"><i class="fas fa-edit"></i></button>
+                            <button onclick="deleteRecord('${rec.id}')" class="text-red-500 hover:bg-red-100 p-1.5 rounded" title="ลบข้อมูล"><i class="fas fa-trash"></i></button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+            
+            // อัปเดตหมุดบนแผนที่ทุกครั้งที่ข้อมูลตารางเปลี่ยน
+            updateMapMarkers();
+        }
+
+        function deleteRecord(id) {
+            if(confirm('ยืนยันการลบข้อมูลรายการนี้?')) {
+                let records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+                records = records.filter(r => r.id !== id);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+                
+                if (editingId === id) cancelEdit(); 
+                
+                loadData();
+            }
+        }
+
+        function exportToExcel() {
+            const records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+            if (records.length === 0) return alert('ไม่มีข้อมูล');
+
+            const excelData = records.map(r => ({
+                'จังหวัด': r.cwt, 'เขตการปกครอง': r.area, 'ตำบล': r.subdistrict, 'EA': r.ea,
+                'A1 ลำดับที่บ้าน': r.a1, 'A2 ชื่อถนน': r.a2, 'A2_1 ชื่อตรอก/ซอย': r.a2_1,
+                'A3 บ้านเลขที่': r.a3, 'A3_1 ชื่อหมู่บ้าน/อาคาร': r.a3_1, 'A3_2 ประเภทอาคาร': r.a3_2,
+                'A4 การอยู่อาศัย': r.a4, 'A6_1 จำนวนครัวเรือนทั้งสิ้น': r.a6_1,
+                'A25 หมายเหตุอาคาร': r.a25, 
+                'A7 ลำดับครัวเรือน': r.a7 || 1,
+                'ห้องที่': r.room_no || '0',
+                'ชั้นที่': r.floor_no || '0',
+                'A9 ประเภทครัวเรือน': r.a9, 
+                'A10_P1 คำนำหน้า (หัวหน้า)': r.a10_p1, 'A10_1 ชื่อตัว': r.a10_1, 'A10_2 ชื่อสกุล': r.a10_2,
+                'AH สถานะอยู่อาศัย': r.ah, 'A12 ชาย': r.a12, 'A13 หญิง': r.a13, 'A11 รวม': r.a11,
+                'A14 อายุ<1ปี': r.a14, 'A15 อายุ 1-3ปี': r.a15, 'A16 อายุ 4ปี': r.a16, 'A27 หญิงตั้งครรภ์': r.a27,
+                'A19 อาชีพรายได้สูงสุด': r.a19, 'A20 สถานภาพการทำงาน': r.a20, 'A18 ประเภทอุตสาหกรรม': r.a18,
+                'A28 บกพร่อง': r.a28, 'A29 ปัญหาสุขภาพ': r.a29, 'A30 ผู้มีปัญหาสุขภาพรวม': r.a30,
+                'A22_P1 คำนำหน้า (ผู้ตอบ)': r.a22_p1, 'A22_1 ชื่อ (ผู้ตอบ)': r.a22_1, 'A22_2 สกุล (ผู้ตอบ)': r.a22_2,
+                'A23 เป็นสมาชิกครัวเรือน?': r.a23, 'A24 หมายเหตุครัวเรือน': r.a24,
+                'A32_1 เบอร์โทร': r.a32_1, 'A32_2 Line': r.a32_2, 'A32_3 Email': r.a32_3, 'A32_4 อื่นๆ': r.a32_4,
+                'ละติจูด (Lat)': r.lat || '',
+                'ลองจิจูด (Lng)': r.lng || '',
+                'เวลาบันทึก': r.timestamp
+            }));
+
+            const ws = XLSX.utils.json_to_sheet(excelData);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "แบบ สพค.70");
+            XLSX.writeFile(wb, `SPK70_EA_${records[0].ea || 'Data'}.xlsx`);
+        }
+
+        function backupData() {
+            const records = localStorage.getItem(STORAGE_KEY) || '[]';
+            const parsed = JSON.parse(records);
+            if(parsed.length === 0) return alert('ไม่มีข้อมูลให้สำรอง');
+            
+            const blob = new Blob([records], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SPK70_Backup_EA${parsed[0].ea || 'Data'}_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function restoreData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = JSON.parse(e.target.result);
+                    if (Array.isArray(importedData)) {
+                        let existing = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+                        const existingIds = new Set(existing.map(r => r.id));
+                        
+                        let addedCount = 0;
+                        importedData.forEach(r => {
+                            if(!existingIds.has(r.id)) {
+                                existing.push(r);
+                                addedCount++;
+                            }
+                        });
+                        
+                        localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
+                        loadData();
+                        alert(`กู้คืนข้อมูลสำเร็จ! นำเข้าข้อมูลใหม่จำนวน ${addedCount} รายการ`);
+                    } else {
+                        alert('รูปแบบไฟล์ไม่ถูกต้อง');
+                    }
+                } catch (err) {
+                    alert('เกิดข้อผิดพลาดในการอ่านไฟล์');
+                }
+                event.target.value = ''; 
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
